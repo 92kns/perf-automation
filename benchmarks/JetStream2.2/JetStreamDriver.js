@@ -468,6 +468,10 @@ class Driver {
             JetStream.start();
             return false;
         }
+
+        if (location.search === '?raptor') {
+            statusElement.click();
+        }
     }
 
     resultsJSON()
@@ -507,8 +511,62 @@ class Driver {
         if (!isInBrowser)
             return;
 
+        let results = {};
+        for (let benchmark of this.benchmarks) {
+            const subResults = {}
+            const subTimes = benchmark.subTimes();
+            for (const name in subTimes) {
+                // i removed the function toTimeValue() that was applied to subTimes[name]
+                // because the metrics were transformed in "timestamps" instead of ms
+                subResults[name] = {"metrics": {"Time": {"current": [subTimes[name]]}}};
+            }
+            results[benchmark.name] = {
+                "metrics" : {
+                    "Score" : {"current" : [benchmark.score]},
+                    "Time": ["Geometric"],
+                },
+                "tests": subResults,
+            };
+        }
         if (!shouldReport)
             return;
+
+        var allTests = results;
+        var measured = {};
+        var nameSeparator = '-';
+
+        // testName is a string and equal to something like "WSL", "Babylon", etc.
+        for (var testName in allTests) {
+            // testScoreName = WSL-Geometric
+            var testScoreName = testName + nameSeparator + allTests[testName]['metrics']['Time'][0];
+            // testScoreValue = [23.14077876392941]
+            var testScoreValue = allTests[testName]['metrics']['Score']['current'];
+            // measured['WSL-Geometric'] = 23.14077876392941
+            measured[testScoreName] = testScoreValue;
+
+            // subTestName has a value from [First, Worst, Average, Stdlib, MainRun, Startup, Runtime, etc]
+            for (var subTestName in allTests[testName]['tests']) {
+                // subTestValue = allTests['WSL']['tests']['Stdlib']['metrics']['Time']['current'] = 0.243
+                var subTestValue = allTests[testName]['tests'][subTestName]['metrics']['Time']['current'];
+                // let's add the testName as a prefix: WSL-Stdlib, etc.
+                var subTestName = testName + nameSeparator + subTestName;
+                // insert the values in the measurements object
+                measured[subTestName] = subTestValue;
+            }
+        }
+
+        if (location.search === '?raptor') {
+            // the data that will be sent to raptor
+            var _data = ['raptor-benchmark', 'jetstream2', measured];
+            console.log('jetstream2 is about to post results to the raptor webext');
+            window.postMessage(_data, '*');
+            // Send the results to browsertime
+            window.sessionStorage.setItem('benchmark_results',  JSON.stringify(_data));
+        }
+        //=================================================================================
+
+
+        results = {"JetStream2.0": {"metrics" : {"Score" : ["Geometric"]}, "tests" : results}};
 
         const content = this.resultsJSON();
         await fetch("/report", {
